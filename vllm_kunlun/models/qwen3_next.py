@@ -983,7 +983,7 @@ class Qwen3NextDecoderLayer(nn.Module):
     ) -> None:
         super().__init__()
 
-        config = vllm_config.model_config.hf_config
+        config = vllm_config.model_config.hf_text_config
         model_config = vllm_config.model_config
         cache_config = vllm_config.cache_config
         quant_config = vllm_config.quant_config
@@ -1015,9 +1015,11 @@ class Qwen3NextDecoderLayer(nn.Module):
         mlp_only_layers = (
             [] if not hasattr(config, "mlp_only_layers") else config.mlp_only_layers
         )
+        decoder_sparse_step = getattr(config, "decoder_sparse_step", 1)
+        num_experts = getattr(config, "num_experts", 0)
         if (self.layer_idx not in mlp_only_layers) and (
-            config.num_experts > 0
-            and (self.layer_idx + 1) % config.decoder_sparse_step == 0
+            num_experts > 0
+            and (self.layer_idx + 1) % decoder_sparse_step == 0
         ):
             self.mlp = Qwen3NextSparseMoeBlock(
                 vllm_config=vllm_config,

@@ -195,6 +195,7 @@ class Qwen3_5MoeConfig(PretrainedConfig):
         elif text_config is None:
             self.text_config = self.sub_configs["text_config"]()
 
+        self.image_token_index = image_token_id
         self.image_token_id = image_token_id
         self.video_token_id = video_token_id
         self.vision_start_token_id = vision_start_token_id

@@ -46,7 +46,7 @@ class Qwen3NextMultiTokenPredictor(nn.Module):
         model_config = vllm_config.model_config
         quant_config = vllm_config.quant_config
         lora_config = vllm_config.lora_config
-        config: Qwen3NextConfig = model_config.hf_config
+        config: Qwen3NextConfig = model_config.hf_text_config
 
         self.config = config
         lora_vocab = (
@@ -147,10 +147,10 @@ class Qwen3NextMultiTokenPredictor(nn.Module):
             ("gate_up_proj", "gate_proj", 0),
             ("gate_up_proj", "up_proj", 1),
         ]
-
         # Params for weights, fp8 weight scales, fp8 activation scales
         # (param_name, weight_name, expert_id, shard_id)
         expert_params_mapping = FusedMoE.make_expert_params_mapping(
+            self,
             ckpt_gate_proj_name="gate_proj",
             ckpt_down_proj_name="down_proj",
             ckpt_up_proj_name="up_proj",
@@ -235,7 +235,7 @@ class Qwen3NextMTP(nn.Module, SupportsPP):
     }
 
     def __init__(self, *, vllm_config: VllmConfig, prefix: str = ""):
-        config = vllm_config.model_config.hf_config
+        config = vllm_config.model_config.hf_text_config
         self.vllm_config = vllm_config
         cache_config = vllm_config.cache_config
         assert (
@@ -295,7 +295,10 @@ class Qwen3NextMTP(nn.Module, SupportsPP):
             for name, weight in weights:
                 if name.startswith("mtp."):
                     name = name.replace("mtp.", "model.")
-                elif not any(key in name for key in shared_weight_names):
+                elif any(key in name for key in shared_weight_names):
+                    if "embed_tokens" in name:
+                        name = name.replace("language_model.", "")
+                else:
                     continue
                 yield name, weight
 
