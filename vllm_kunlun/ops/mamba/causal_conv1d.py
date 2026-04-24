@@ -49,6 +49,17 @@ def causal_conv1d_fn(
     ), "query_start_loc is required for kunlun causal_conv1d_fn"
     batch_size = query_start_loc.shape[0] - 1
 
+    # Kunlun C++ kernel strictly requires int32 for LOD tensors.
+    def _to_i32(t):
+        if t is None or t.dtype == torch.int32:
+            return t
+        return t.to(torch.int32)
+
+    query_start_loc = _to_i32(query_start_loc)
+    query_start_loc_cpu = _to_i32(query_start_loc_cpu)
+    cache_indices = _to_i32(cache_indices)
+    cache_indices_cpu = _to_i32(cache_indices_cpu)
+
     kunlun_ops.causal_conv1d_fn(
         x,
         out,
@@ -194,10 +205,22 @@ def causal_conv1d_update(
         x = x.squeeze(-1).unsqueeze(1)
     else:
         x = x.squeeze(-1).view(-1, max_query_len, dim)
+
+    # Kunlun C++ kernel strictly requires int32 for all LOD tensors
+    # (conv_state_indices / num_accepted_tokens), both cpu and xpu side.
+    # Defensive conversion here to guard against upstream int64 tensors.
+    def _to_i32(t):
+        if t is None or t.dtype == torch.int32:
+            return t
+        return t.to(torch.int32)
+
+    conv_state_indices = _to_i32(conv_state_indices)
+    conv_state_indices_cpu = _to_i32(conv_state_indices_cpu)
+    num_accepted_tokens = _to_i32(num_accepted_tokens)
+    num_accepted_tokens_cpu = _to_i32(num_accepted_tokens_cpu)
+
     if num_accepted_tokens is None:
         out = torch.empty_like(x)
-        import kunlun_ops
-
         stride = conv_state.stride()[0]
         kunlun_ops.causal_conv1d_update(
             x,
@@ -232,3 +255,4 @@ def causal_conv1d_update(
                     state_seq_stride=stride,
                     is_ncw=False
         )
+        return out.view(-1, dim)

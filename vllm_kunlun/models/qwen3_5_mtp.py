@@ -57,6 +57,7 @@ logger = init_logger(__name__)
 class Qwen3_5MultiTokenPredictor(nn.Module):
     def __init__(self, *, vllm_config: VllmConfig, prefix: str = ""):
         super().__init__()
+        print(f"[MTP DEBUG] Qwen3_5MultiTokenPredictor __init__ called, prefix={prefix}")
 
         model_config = vllm_config.model_config
         quant_config = vllm_config.quant_config
@@ -136,6 +137,7 @@ class Qwen3_5MultiTokenPredictor(nn.Module):
             hidden_states = torch.cat([inputs_embeds, hidden_states], dim=-1)
             hidden_states = self.fc(hidden_states)
             residual = None
+            print(f"[MTP DEBUG] after fc: min={hidden_states.min().item():.4f}, max={hidden_states.max().item():.4f}, isnan={hidden_states.isnan().any().item()}, isinf={hidden_states.isinf().any().item()}")
         else:
             assert intermediate_tensors is not None
             hidden_states = intermediate_tensors["hidden_states"]
@@ -147,6 +149,7 @@ class Qwen3_5MultiTokenPredictor(nn.Module):
             hidden_states=hidden_states,
             residual=residual,
         )
+        print(f"[MTP DEBUG] after layer_{current_step_idx}: min={hidden_states.min().item():.4f}, max={hidden_states.max().item():.4f}, isnan={hidden_states.isnan().any().item()}, isinf={hidden_states.isinf().any().item()}")
 
         if not get_pp_group().is_last_rank:
             return IntermediateTensors(
@@ -154,6 +157,7 @@ class Qwen3_5MultiTokenPredictor(nn.Module):
             )
 
         hidden_states, _ = self.norm(hidden_states, residual)
+        print(f"[MTP DEBUG] after norm: min={hidden_states.min().item():.4f}, max={hidden_states.max().item():.4f}, isnan={hidden_states.isnan().any().item()}, isinf={hidden_states.isinf().any().item()}")
         return hidden_states
 
     def load_fused_expert_weights(

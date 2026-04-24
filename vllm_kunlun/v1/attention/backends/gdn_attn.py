@@ -425,10 +425,23 @@ class GDNAttentionMetadataBuilder(AttentionMetadataBuilder[GDNAttentionMetadata]
                 if non_spec_query_start_loc is not None
                 else None
             ),
-            spec_state_indices_tensor=spec_state_indices_tensor,
-            non_spec_state_indices_tensor=non_spec_state_indices_tensor,
+            spec_state_indices_tensor=(
+                spec_state_indices_tensor.to(torch.int32)
+                if spec_state_indices_tensor is not None
+                else None
+            ),
+            spec_state_indices_tensor_cpu=(
+                spec_state_indices_tensor.to(device="cpu", dtype=torch.int32)
+                if spec_state_indices_tensor is not None
+                else None
+            ),
+            non_spec_state_indices_tensor=(
+                non_spec_state_indices_tensor.to(torch.int32)
+                if non_spec_state_indices_tensor is not None
+                else None
+            ),
             non_spec_state_indices_tensor_cpu=(
-                non_spec_state_indices_tensor.cpu()
+                non_spec_state_indices_tensor.to(device="cpu", dtype=torch.int32)
                 if non_spec_state_indices_tensor is not None
                 else None
             ),
@@ -438,7 +451,9 @@ class GDNAttentionMetadataBuilder(AttentionMetadataBuilder[GDNAttentionMetadata]
             non_spec_token_indx=non_spec_token_indx,
             num_accepted_tokens=num_accepted_tokens,
             num_accepted_tokens_cpu=(
-                num_accepted_tokens.cpu() if num_accepted_tokens is not None else None
+                num_accepted_tokens.to(device="cpu", dtype=torch.int32)
+                if num_accepted_tokens is not None
+                else None
             ),
             nums_dict=nums_dict,
             batch_ptr=batch_ptr,
