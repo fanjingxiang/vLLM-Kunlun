@@ -879,33 +879,48 @@ class KunlunAttentionImpl(AttentionImpl[KunlunMetadata]):
 
             sig = inspect.signature(kunlun_ops.speculative_attention)
             if "max_window_size" in sig.parameters:
-                kunlun_ops.speculative_attention(
-                    out=output[:num_decode_tokens],
-                    # Only MLA support q len > 1 right now
-                    q=decode_query.unsqueeze(0),
-                    k_cache=key_cache,
-                    v_cache=value_cache,
-                    context_lens_cpu=decode_meta.seq_lens_tensor_cpu,
-                    context_lens_xpu=decode_meta.seq_lens_tensor,
-                    batch_num=decode_meta.block_tables.shape[0],
-                    # TODO (@xyDong23): Support MTP(q lens >1)
-                    qlen=1,
-                    # TODO (@xyDong23): Support max_context_len to (262144)
-                    max_context_len=131072,
-                    head_num=self.num_heads,
-                    head_dim=self.head_size,
-                    scale=0.0,
-                    kv_head_num=self.num_kv_heads,
-                    block_size=key_cache.shape[2],
-                    max_num_blocks_per_seq=decode_meta.block_tables.shape[1],
-                    max_window_size=(
-                        self.sliding_window if self.sliding_window is not None else -1
-                    ),
-                    block_tables=tmp_block_tables,
-                    sink=(
-                        self.sinks.to(torch.float32) if self.sinks is not None else None
-                    ),
-                )
+                _batch_num = decode_meta.block_tables.shape[0]
+                if self.sliding_window is None:
+                    _out = output[:num_decode_tokens]
+                    kunlun_ops.paged_attention(
+                        x=decode_query,
+                        k_cache=key_cache,
+                        v_cache=value_cache,
+                        block_tables=tmp_block_tables,
+                        context_lens_cpu=decode_meta.seq_lens_tensor_cpu,
+                        context_lens_xpu=decode_meta.seq_lens_tensor,
+                        is_context=False,
+                        is_causal=True,
+                        out=_out,
+                        vo_head_dim=self.head_size,
+                    )
+                else:
+                    kunlun_ops.speculative_attention(
+                        out=output[:num_decode_tokens],
+                        q=decode_query.view(_batch_num, 1, self.num_heads, self.head_size),
+                        k_cache=key_cache,
+                        v_cache=value_cache,
+                        context_lens_cpu=decode_meta.seq_lens_tensor_cpu,
+                        context_lens_xpu=decode_meta.seq_lens_tensor,
+                        batch_num=_batch_num,
+                        # TODO (@xyDong23): Support MTP(q lens >1)
+                        qlen=1,
+                        # TODO (@xyDong23): Support max_context_len to (262144)
+                        max_context_len=131072,
+                        head_num=self.num_heads,
+                        head_dim=self.head_size,
+                        scale=0.0,
+                        kv_head_num=self.num_kv_heads,
+                        block_size=key_cache.shape[2],
+                        max_num_blocks_per_seq=decode_meta.block_tables.shape[1],
+                        max_window_size=self.sliding_window,
+                        block_tables=tmp_block_tables,
+                        sink=(
+                            self.sinks.to(torch.float32)
+                            if self.sinks is not None
+                            else None
+                        ),
+                    )
             elif not attn_metadata.is_speculative:
                 kunlun_ops.paged_attention(
                     x=decode_query,
@@ -924,28 +939,8 @@ class KunlunAttentionImpl(AttentionImpl[KunlunMetadata]):
                 query_seq_len, head_num, head_dim = decode_query.shape
                 assert query_seq_len % batch_size == 0
                 qlen = query_seq_len // batch_size
-                # out = output[:num_decode_tokens]
-                # assert out.is_contiguous()
-
-                # kunlun_ops.speculative_attention(
-                #     out=out.view(batch_size, qlen, head_num, self.head_size),
-                #     q=decode_query.view(batch_size, qlen, head_num, head_dim),
-                #     k_cache=key_cache,
-                #     v_cache=value_cache,
-                #     context_lens_cpu=decode_meta.seq_lens_tensor_cpu,
-                #     context_lens_xpu=decode_meta.seq_lens_tensor,
-                #     batch_num=batch_size,
-                #     qlen=qlen,
-                #     max_context_len=decode_meta.max_model_len,
-                #     head_num=self.num_heads,
-                #     head_dim=self.head_size,
-                #     scale=0.0,
-                #     kv_head_num=self.num_kv_heads,
-                #     block_size=key_cache.shape[2],
-                #     max_num_blocks_per_seq=decode_meta.block_tables.shape[1],
-                #     block_tables=tmp_block_tables,
-                # )
                 if qlen == 1:
+                    _out = output[:num_decode_tokens]
                     kunlun_ops.paged_attention(
                         x=decode_query,
                         k_cache=key_cache,
@@ -955,7 +950,7 @@ class KunlunAttentionImpl(AttentionImpl[KunlunMetadata]):
                         context_lens_xpu=decode_meta.seq_lens_tensor,
                         is_context=False,
                         is_causal=True,
-                        out=output[:num_decode_tokens],
+                        out=_out,
                         vo_head_dim=self.head_size,
                     )
                 else:
@@ -963,8 +958,6 @@ class KunlunAttentionImpl(AttentionImpl[KunlunMetadata]):
                     kunlun_ops.speculative_attention(
                         out=out,  # 3D: (num_decode_tokens, head_num, v_dim)
                         q=decode_query,  # 3D: (num_decode_tokens, head_num, head_dim)
-                        # out=out.view(batch_size, qlen, head_num, self.head_size),
-                        # q=decode_query.view(batch_size, qlen, head_num, head_dim),
                         k_cache=key_cache,
                         v_cache=value_cache,
                         context_lens_cpu=decode_meta.seq_lens_tensor_cpu,
@@ -980,7 +973,6 @@ class KunlunAttentionImpl(AttentionImpl[KunlunMetadata]):
                         max_num_blocks_per_seq=decode_meta.block_tables.shape[1],
                         block_tables=tmp_block_tables,
                     )
-                
         # Reshape the output tensor.
         return output.view(-1, self.num_heads * self.head_size)
 
